@@ -1,0 +1,6 @@
+{
+  "name": "TikTok Report Management Platform",
+  "description": "منصة احترافية موحدة لإدارة بلاغات مجتمع تيك توك، وتنسيق جهود فرق الإشراف، مع ميزات الإشعارات المباشرة وتتبع أداء المبلّغين ومخططات إحصائية متكاملة.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
