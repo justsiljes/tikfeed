@@ -1,0 +1,323 @@
+-- Services
+local UserInputService = game:GetService("UserInputService")
+local Players = game:GetService("Players")
+local CoreGui = game:GetService("CoreGui")
+
+local player = Players.LocalPlayer
+local mouse = player:GetMouse()
+
+-- Variables
+local selectedTarget = nil
+local activeModel = nil
+local isSelecting = false
+local moveStep = 2 -- مسافة التحريك بالـ Studs
+local rotateAngle = 15 -- زاوية التدوير بالدرجات
+local currentHighlight = nil
+
+-- 1. إنشاء الواجهة (GUI)
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "CompleteModelTool"
+screenGui.Parent = CoreGui or player:WaitForChild("PlayerGui")
+
+local mainFrame = Instance.new("Frame")
+mainFrame.Name = "MainFrame"
+mainFrame.Size = UDim2.new(0, 240, 0, 390)
+mainFrame.Position = UDim2.new(0.5, -120, 0.2, 0)
+mainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
+mainFrame.BorderSizePixel = 0
+mainFrame.Active = true
+mainFrame.Draggable = true
+mainFrame.Parent = screenGui
+
+Instance.new("UICorner", mainFrame).CornerRadius = UDim.new(0, 8)
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, 0, 0, 30)
+title.BackgroundTransparency = 1
+title.Text = "Model Copier & Transform ('P')"
+title.TextColor3 = Color3.fromRGB(255, 255, 255)
+title.TextSize = 13
+title.Font = Enum.Font.SourceSansBold
+title.Parent = mainFrame
+
+-- زر التحديد
+local selectBtn = Instance.new("TextButton")
+selectBtn.Size = UDim2.new(0.9, 0, 0, 30)
+selectBtn.Position = UDim2.new(0.05, 0, 0.09, 0)
+selectBtn.BackgroundColor3 = Color3.fromRGB(0, 120, 215)
+selectBtn.Text = "1. حدد مجسم"
+selectBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+selectBtn.Font = Enum.Font.SourceSansBold
+selectBtn.TextSize = 14
+selectBtn.Parent = mainFrame
+Instance.new("UICorner", selectBtn).CornerRadius = UDim.new(0, 5)
+
+-- زر النسخ
+local copyBtn = Instance.new("TextButton")
+copyBtn.Size = UDim2.new(0.9, 0, 0, 32)
+copyBtn.Position = UDim2.new(0.05, 0, 0.18, 0)
+copyBtn.BackgroundColor3 = Color3.fromRGB(220, 130, 0)
+copyBtn.Text = "2. نسخ المجسم المحدد"
+copyBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+copyBtn.Font = Enum.Font.SourceSansBold
+copyBtn.TextSize = 14
+copyBtn.Visible = false
+copyBtn.Parent = mainFrame
+Instance.new("UICorner", copyBtn).CornerRadius = UDim.new(0, 5)
+
+-- لوحة أزرار التحريك (Move)
+local moveFrame = Instance.new("Frame")
+moveFrame.Size = UDim2.new(0.9, 0, 0, 105)
+moveFrame.Position = UDim2.new(0.05, 0, 0.28, 0)
+moveFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+moveFrame.Visible = false
+moveFrame.Parent = mainFrame
+Instance.new("UICorner", moveFrame).CornerRadius = UDim.new(0, 5)
+
+local moveLabel = Instance.new("TextLabel")
+moveLabel.Size = UDim2.new(1, 0, 0, 18)
+moveLabel.BackgroundTransparency = 1
+moveLabel.Text = "التحريك (Move):"
+moveLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+moveLabel.TextSize = 11
+moveLabel.Font = Enum.Font.SourceSans
+moveLabel.Parent = moveFrame
+
+-- لوحة أزرار التدوير (Rotate)
+local rotateFrame = Instance.new("Frame")
+rotateFrame.Size = UDim2.new(0.9, 0, 0, 105)
+rotateFrame.Position = UDim2.new(0.05, 0, 0.57, 0)
+rotateFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+rotateFrame.Visible = false
+rotateFrame.Parent = mainFrame
+Instance.new("UICorner", rotateFrame).CornerRadius = UDim.new(0, 5)
+
+local rotateLabel = Instance.new("TextLabel")
+rotateLabel.Size = UDim2.new(1, 0, 0, 18)
+rotateLabel.BackgroundTransparency = 1
+rotateLabel.Text = "تغيير الإتجاه والزاوية (Rotate):"
+rotateLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+rotateLabel.TextSize = 11
+rotateLabel.Font = Enum.Font.SourceSans
+rotateLabel.Parent = rotateFrame
+
+-- دالة إزالة وتدمير الهايلايت
+local function removeHighlight()
+	if currentHighlight then
+		currentHighlight:Destroy()
+		currentHighlight = nil
+	end
+end
+
+-- دالة إنشاء الهايلايت وتفعيله فقط للمجسم النشط
+local function applyHighlight(target)
+	removeHighlight()
+	if target then
+		currentHighlight = Instance.new("Highlight")
+		currentHighlight.FillColor = Color3.fromRGB(0, 255, 130)
+		currentHighlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+		currentHighlight.FillTransparency = 0.4
+		currentHighlight.Adornee = target
+		currentHighlight.Parent = target
+	end
+end
+
+-- دالة تحريك المجسم
+local function moveActiveModel(vector)
+	if not activeModel then return end
+	
+	if activeModel:IsA("Model") then
+		activeModel:PivotTo(activeModel:GetPivot() + vector)
+	elseif activeModel:IsA("BasePart") then
+		activeModel.CFrame = activeModel.CFrame + vector
+	end
+end
+
+-- دالة تدوير المجسم
+local function rotateActiveModel(x, y, z)
+	if not activeModel then return end
+	local radX, radY, radZ = math.rad(x), math.rad(y), math.rad(z)
+	local rotationCFrame = CFrame.Angles(radX, radY, radZ)
+	
+	if activeModel:IsA("Model") then
+		activeModel:PivotTo(activeModel:GetPivot() * rotationCFrame)
+	elseif activeModel:IsA("BasePart") then
+		activeModel.CFrame = activeModel.CFrame * rotationCFrame
+	end
+end
+
+-- إنشاء أزرار الاتجاهات للتحريك
+local function createMoveButton(text, pos, size, moveVector)
+	local btn = Instance.new("TextButton")
+	btn.Size = size
+	btn.Position = pos
+	btn.BackgroundColor3 = Color3.fromRGB(65, 65, 65)
+	btn.Text = text
+	btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	btn.Font = Enum.Font.SourceSansBold
+	btn.TextSize = 11
+	btn.Parent = moveFrame
+	Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 4)
+	
+	btn.MouseButton1Click:Connect(function()
+		moveActiveModel(moveVector * moveStep)
+	end)
+end
+
+createMoveButton("فوق (Y+)", UDim2.new(0.05, 0, 0.20, 0), UDim2.new(0.42, 0, 0.22, 0), Vector3.new(0, 1, 0))
+createMoveButton("تحت (Y-)", UDim2.new(0.53, 0, 0.20, 0), UDim2.new(0.42, 0, 0.22, 0), Vector3.new(0, -1, 0))
+createMoveButton("أمام", UDim2.new(0.05, 0, 0.46, 0), UDim2.new(0.28, 0, 0.22, 0), Vector3.new(0, 0, -1))
+createMoveButton("خلف", UDim2.new(0.36, 0, 0.46, 0), UDim2.new(0.28, 0, 0.22, 0), Vector3.new(0, 0, 1))
+createMoveButton("يمين", UDim2.new(0.67, 0, 0.46, 0), UDim2.new(0.28, 0, 0.22, 0), Vector3.new(1, 0, 0))
+createMoveButton("يسار", UDim2.new(0.05, 0, 0.72, 0), UDim2.new(0.28, 0, 0.22, 0), Vector3.new(-1, 0, 0))
+
+local tpToMeBtn = Instance.new("TextButton")
+tpToMeBtn.Size = UDim2.new(0.6, 0, 0.22, 0)
+tpToMeBtn.Position = UDim2.new(0.35, 0, 0.72, 0)
+tpToMeBtn.BackgroundColor3 = Color3.fromRGB(120, 60, 160)
+tpToMeBtn.Text = "نقل لمكاني"
+tpToMeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+tpToMeBtn.Font = Enum.Font.SourceSansBold
+tpToMeBtn.TextSize = 11
+tpToMeBtn.Parent = moveFrame
+Instance.new("UICorner", tpToMeBtn).CornerRadius = UDim.new(0, 4)
+
+tpToMeBtn.MouseButton1Click:Connect(function()
+	if activeModel and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+		local pPos = player.Character.HumanoidRootPart.CFrame
+		if activeModel:IsA("Model") then
+			activeModel:PivotTo(pPos + Vector3.new(0, 2, 0))
+		elseif activeModel:IsA("BasePart") then
+			activeModel.CFrame = pPos + Vector3.new(0, 2, 0)
+		end
+	end
+end)
+
+-- إنشاء أزرار التدوير
+local function createRotateButton(text, pos, size, rx, ry, rz)
+	local btn = Instance.new("TextButton")
+	btn.Size = size
+	btn.Position = pos
+	btn.BackgroundColor3 = Color3.fromRGB(65, 65, 65)
+	btn.Text = text
+	btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	btn.Font = Enum.Font.SourceSansBold
+	btn.TextSize = 11
+	btn.Parent = rotateFrame
+	Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 4)
+	
+	btn.MouseButton1Click:Connect(function()
+		rotateActiveModel(rx, ry, rz)
+	end)
+end
+
+createRotateButton("لفة يمين ⟳", UDim2.new(0.05, 0, 0.22, 0), UDim2.new(0.42, 0, 0.32, 0), 0, -rotateAngle, 0)
+createRotateButton("لفة يسار ⟲", UDim2.new(0.53, 0, 0.22, 0), UDim2.new(0.42, 0, 0.32, 0), 0, rotateAngle, 0)
+createRotateButton("إمالة للأمام", UDim2.new(0.05, 0, 0.60, 0), UDim2.new(0.42, 0, 0.32, 0), rotateAngle, 0, 0)
+createRotateButton("إمالة للخلف", UDim2.new(0.53, 0, 0.60, 0), UDim2.new(0.42, 0, 0.32, 0), -rotateAngle, 0, 0)
+
+-- زر الإنهاء والتثبيت
+local finishBtn = Instance.new("TextButton")
+finishBtn.Size = UDim2.new(0.9, 0, 0, 32)
+finishBtn.Position = UDim2.new(0.05, 0, 0.88, 0)
+finishBtn.BackgroundColor3 = Color3.fromRGB(40, 160, 70)
+finishBtn.Text = "إنهاء وتثبيت"
+finishBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+finishBtn.Font = Enum.Font.SourceSansBold
+finishBtn.TextSize = 14
+finishBtn.Visible = false
+finishBtn.Parent = mainFrame
+Instance.new("UICorner", finishBtn).CornerRadius = UDim.new(0, 5)
+
+-- 2. منطق العمليات (Logic)
+
+local function resetAll()
+	removeHighlight()
+	selectedTarget = nil
+	activeModel = nil
+	isSelecting = false
+	
+	selectBtn.Text = "1. حدد مجسم"
+	selectBtn.BackgroundColor3 = Color3.fromRGB(0, 120, 215)
+	copyBtn.Visible = false
+	moveFrame.Visible = false
+	rotateFrame.Visible = false
+	finishBtn.Visible = false
+end
+
+-- إظهار وإخفاء الواجهة بحرف P
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed then return end
+	if input.KeyCode == Enum.KeyCode.P then
+		mainFrame.Visible = not mainFrame.Visible
+	end
+end)
+
+-- بدء التحديد
+selectBtn.MouseButton1Click:Connect(function()
+	resetAll()
+	isSelecting = true
+	selectBtn.Text = "اضغط على أي مجسم بالماب..."
+	selectBtn.BackgroundColor3 = Color3.fromRGB(200, 120, 0)
+end)
+
+-- تحديد المجسم بالماوس وتظليله
+mouse.Button1Down:Connect(function()
+	if not isSelecting then return end
+	
+	local target = mouse.Target
+	if target then
+		selectedTarget = target:FindFirstAncestorOfClass("Model") or target
+		activeModel = selectedTarget
+		
+		-- إظهار التوهج فقط أثناء تحديد/تعديل المجسم
+		applyHighlight(activeModel)
+		
+		selectBtn.Text = "تم التحديد: " .. activeModel.Name
+		selectBtn.BackgroundColor3 = Color3.fromRGB(0, 120, 215)
+		
+		copyBtn.Visible = true
+		moveFrame.Visible = true
+		rotateFrame.Visible = true
+		finishBtn.Visible = true
+		isSelecting = false
+	end
+end)
+
+-- عملية النسخ وإخفاء التوهج فوراً
+copyBtn.MouseButton1Click:Connect(function()
+	if not selectedTarget then return end
+	
+	-- إزالة الهايلايت حتى لا يُنسخ مع الموديل
+	removeHighlight()
+	
+	local success, cloned = pcall(function()
+		return selectedTarget:Clone()
+	end)
+	
+	if success and cloned then
+		-- ضمان إزالة أي Highlight داخلي
+		for _, child in pairs(cloned:GetDescendants()) do
+			if child:IsA("Highlight") then
+				child:Destroy()
+			end
+		end
+		if cloned:IsA("Highlight") then
+			cloned:Destroy()
+		end
+
+		cloned.Parent = workspace
+		activeModel = cloned
+		
+		-- إزاحة النسخة قليلاً لتمييزها
+		moveActiveModel(Vector3.new(0, 3, 0))
+		
+		selectBtn.Text = "تم النسخ! عدل الموقع والاتجاه أدناه"
+		copyBtn.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+	end
+end)
+
+-- إنهاء وإخفاء الـ Highlight كلياً
+finishBtn.MouseButton1Click:Connect(function()
+	resetAll()
+end)
